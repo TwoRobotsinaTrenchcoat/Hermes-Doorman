@@ -5,6 +5,7 @@ magic packet and waits (bounded) for the inference port to accept a TCP connecti
 before the request goes out. Fully plugin-side: hook-registered only, no core edits,
 no patching.
 
+v0.2.2 adds turn-cancellation (``agent_loop_stopped``: /stop releases every live hold).
 v0.2.0 adds an **inference keep-alive**: after a wake (or a verified in-contact use),
 the plugin holds a per-host keep-alive that broadcasts one magic packet on a timer
 for the whole life of the open inference — until the matching lifecycle hook says the
@@ -13,7 +14,7 @@ aggressively after unattended wakes (Windows desktop default: ~2 min), each
 keep-alive tick bounces the host back up within one interval so an open request
 isn't left pointed at a box that fell back asleep mid-turn.
 
-Hook set (register(): five hooks, all fail-open):
+Hook set (register(): six hooks, all fail-open):
 
   * ``pre_api_request``          — main-loop attempts; wake + keep-alive arm/refresh
   * ``pre_auxiliary_call``       — aux funnel (vision/titling/compression/...); same path
@@ -25,6 +26,13 @@ Hook set (register(): five hooks, all fail-open):
                                    keeps the hold: the gateway's retry (and its own
                                    ``pre_*`` refresh) is coming; packets continue
                                    through the backoff window.
+  * ``agent_loop_stopped``       — v0.2.2: the TURN is gone (/stop, /new fast
+                                   path). None of the release hooks above fire for
+                                   a cancelled attempt, so this is the only signal
+                                   that the hold has lost its reason to exist:
+                                   release every live hold (grace packet, then
+                                   closed) instead of ghost-packeting a box
+                                   nobody is talking to.
 
 Payload contracts: pre_*/post_*/error hooks all carry ``provider``/``model``/``base_url``
 (agent/turn_api_request.py:63-88 pre-shape; agent/api_request_hooks.py:173-197 error
@@ -315,6 +323,27 @@ class KeepaliveEngine:
                               key[0], key[1], reason or "?", hold["grace"])
         except Exception:
             log.warning("doorman: [keepalive] release failed; continuing", exc_info=True)
+
+    def release_all(self, *, reason: str = "") -> int:
+        """Release every live hold at once (v0.2.2). Used by the ``agent_loop_stopped``
+        hook: when the turn is cancelled (/stop, /new fast path) every open hold
+        belonged to an attempt that is never coming back, so ghost packets must not
+        keep waking a box nobody is talking to. Returns the number of holds released."""
+        log = LOG
+        released = 0
+        try:
+            now = self._clock()
+            with self._lock:
+                for hold in self._holds.values():
+                    if hold.get("released_at") is None:
+                        hold["released_at"] = now
+                        released += 1
+            if released:
+                log.debug("doorman: [keepalive] released %d hold(s) (%s) — final packet per grace",
+                          released, reason or "?")
+        except Exception:
+            log.warning("doorman: [keepalive] release_all failed; continuing", exc_info=True)
+        return released
 
     # -- internals ------------------------------------------------------------
 
@@ -894,6 +923,18 @@ def handle_api_request_error(
                   reason, retry_count, max_retries)
 
 
+def handle_agent_loop_stopped(**_kwargs: Any) -> None:
+    """v0.2.2: the turn is gone (/stop, /new running-agent fast path). Every live
+    hold belonged to that attempt — release them all so a manually-slept box is
+    not knocked back up by ghost packets for a request nobody is waiting on.
+    Fail-open like every other path in this plugin.
+    """
+    try:
+        _ENGINE.release_all(reason="agent_loop_stopped")
+    except Exception:
+        LOG.warning("doorman: agent_loop_stopped release failed; continuing", exc_info=True)
+
+
 def _release_matching(
     *, provider: Optional[str], model: Optional[str], base_url: Optional[str],
     reason: str, **kwargs: Any,
@@ -910,7 +951,7 @@ def _release_matching(
 
 
 def register(ctx: Any) -> None:
-    """Plugin entry point: five observer hooks, no tools, no commands, no core contact."""
+    """Plugin entry point: six observer hooks, no tools, no commands, no core contact."""
     ctx.register_hook(HOOK_NAME, handle_pre_api_request)
     # Auxiliary funnel (agent/auxiliary_hooks.py): vision/titling/compression/... ride a
     # separate hook pair with the same payload shape — same wake path, same budget clamp.
@@ -922,5 +963,10 @@ def register(ctx: Any) -> None:
     ctx.register_hook("post_api_request", handle_post_api_request)
     ctx.register_hook("post_auxiliary_call", handle_post_auxiliary_call)
     ctx.register_hook("api_request_error", handle_api_request_error)
+    # v0.2.2: turn-cancellation. /stop and the /new fast path fire this (payload:
+    # session_key/platform/reason) — the hold's release hooks never fire for a
+    # cancelled turn, so this is the only signal the attempt is gone.
+    ctx.register_hook("agent_loop_stopped", handle_agent_loop_stopped)
     LOG.warning("doorman: [diag] plugin loaded — registered hooks %s + pre_auxiliary_call "
-                "+ post_api_request + post_auxiliary_call + api_request_error", HOOK_NAME)
+                "+ post_api_request + post_auxiliary_call + api_request_error "
+                "+ agent_loop_stopped", HOOK_NAME)

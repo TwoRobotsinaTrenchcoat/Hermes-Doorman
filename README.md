@@ -8,7 +8,7 @@ Like a building's doorman: when a call arrives for a resident who's asleep, the
 doorman wakes them and holds the door open until the visit is over. No request
 of yours should ever die against a machine that decided to nap.
 
-**Current version: 0.2.1.** Full behavior and config examples live in the module
+**Current version: 0.2.2.** Full behavior and config examples live in the module
 docstring of `__init__.py` (authoritative); this README is the user-facing
 reference + the changelog.
 
@@ -31,6 +31,7 @@ reference + the changelog.
    | `post_api_request`        | **release** (success)                                |
    | `post_auxiliary_call`     | **release** (aux attempt finished)                   |
    | `api_request_error`       | release **only when terminal** (`not retryable` or `retry_count >= max_retries`); a retryable error keeps the hold through the gateway's backoff |
+   | `agent_loop_stopped`      | **release everything** (v0.2.2): the turn was cancelled (`/stop`, `/new`) — none of the release hooks fire for a cancelled attempt, so a hold that outlived its request must not keep ghost-packeting a box nobody is talking to |
 
    Hard cap `keepalive_max_seconds` bounds a hold whose release hook never arrives
    (provider failover mid-attempt, dropped turn). One final packet goes out
@@ -130,6 +131,14 @@ Wake-cycle keys (`max_wait_seconds`, `cooldown_seconds`, `wol_port`, `probe_time
 
 ## Changelog
 
+### 2026-11-11 — v0.2.2 (turn-cancellation fix)
+- New hook: `agent_loop_stopped`. `/stop` (and the `/new` fast path) now releases
+  every live keep-alive hold — previously a cancelled turn's hold kept broadcasting
+  for up to the leak cap, waking a manually-slept box for a request nobody was
+  waiting on. Found on camera during the demo-video shoot; fixed same day.
+- 35 regression checks (was 31): six-hook registration + stop-release semantics.
+- No behavior changes for the happy path; wake, hold, release semantics unchanged.
+
 ### 2026-11-10 — v0.2.1 (rename release)
 - Renamed `provider-wol` → **doorman** (internal log prefixes and thread name
   included). No behavior changes. The config block key stays `provider_wol:` for
@@ -146,7 +155,7 @@ Wake-cycle keys (`max_wait_seconds`, `cooldown_seconds`, `wol_port`, `probe_time
   module defaults, never a target). All three v0.1.x config shapes still parse.
 - Plain: parse-time regression where the `defaults` label was silently dropped
   before its keys could be absorbed — visible only in tests, fixed same pass.
-- 31 checks passing (`test_doorman_v021.py`: config shapes, engine timing under a
+- 31 checks passing in v0.2.0 (`test_doorman_v021.py`: config shapes, engine timing under a
   fake clock, terminal-vs-retryable releases, five-hook registration, symmetric
   release matching).
 
@@ -175,5 +184,5 @@ Wake-cycle keys (`max_wait_seconds`, `cooldown_seconds`, `wol_port`, `probe_time
 ## Files
 
 - `__init__.py` — the plugin (docstring is the full spec).
-- `plugin.yaml` — name, version, hook list (all five).
+- `plugin.yaml` — name, version, hook list (all six).
 - `test_doorman_v021.py` — the 31-check regression suite (stdlib only).
