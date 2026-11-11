@@ -44,7 +44,7 @@ Config (config.yaml), re-read on every hook fire so edits need no restart.
 Accepted shapes (all three remain valid; the named-targets form is canon):
 
     # flat single-row form (bare mapping, no dashes):
-    provider_wol:
+    doorman:
       match: provider:lmstudio       # provider name (exact) -> every model it serves
       host: 10.0.20.10
       mac: "aa:bb:cc:dd:ee:01"
@@ -53,7 +53,7 @@ Accepted shapes (all three remain valid; the named-targets form is canon):
 
     # named-targets form (canon): mapping of labels -> row. The label rides along
     # as the row's ``name`` for status output and log lines:
-    provider_wol:
+    doorman:
       gpu-host:
         match: base_url:*gpu-host*
         host: 10.0.20.10
@@ -72,7 +72,7 @@ Accepted shapes (all three remain valid; the named-targets form is canon):
 A list of entries:   list; each entry complete, OR one field per line (fragmented
 entries merge into one row). Optional ``defaults`` key inside the named form:
 
-    provider_wol:
+    doorman:
       defaults:
         keepalive_interval_seconds: 90
       gpu-host:
@@ -127,8 +127,10 @@ from typing import Any, Callable, Iterable, Mapping, Optional
 LOG = logging.getLogger("doorman")
 
 # Legacy config key, kept for compatibility with existing deployments:
-# the plugin is named doorman, but its config block is still ``provider_wol:``.
-CONFIG_BLOCK = "provider_wol"
+# v0.2.3: the config block is ``doorman:`` — the plugin's own name, full stop.
+# The pre-rename ``provider_wol:`` spelling is NOT read (clean rename; update
+# your config block when you update the plugin).
+CONFIG_BLOCK = "doorman"
 HOOK_NAME = "pre_api_request"
 
 DEFAULT_PROBE_TIMEOUT = 0.75     # seconds, one TCP connect attempt
@@ -514,7 +516,7 @@ def split_match(raw: Any) -> tuple[str, str]:
 
 
 def parse_row(raw: Any) -> Optional[dict]:
-    """Validate one ``provider_wol`` row (named-flat entry, list entry, or fragment).
+    """Validate one ``doorman`` row (named-flat entry, list entry, or fragment).
 
     None (with a warning) when unusable.
     """
@@ -583,7 +585,7 @@ def _merge_fragmented(raw_rows):
 
 
 def parse_rows(block: Any) -> list[dict]:
-    """``provider_wol`` config block -> validated rows.
+    """``doorman`` config block -> validated rows.
 
     Three accepted shapes. The flat single-row form (bare mapping whose
     values are scalars), the named-targets form (bare mapping whose values
@@ -630,7 +632,7 @@ def parse_rows(block: Any) -> list[dict]:
 
 
 def load_rows() -> list[dict]:
-    """Re-read ``provider_wol`` from config.yaml on every call (hot reload; no restart).
+    """Re-read the ``doorman`` block from config.yaml on every call (hot reload; no restart).
 
     Mirrors the agent-hud pattern: read-only, fail-open, never raises.
     """
@@ -638,8 +640,7 @@ def load_rows() -> list[dict]:
         from hermes_cli.config import cfg_get, load_config
 
         cfg = load_config() or {}
-        block = cfg_get(cfg, CONFIG_BLOCK, default=None)
-        return parse_rows(block)
+        return parse_rows(cfg_get(cfg, CONFIG_BLOCK, default=None))
     except Exception as exc:  # config import problem must never touch the turn
         LOG.debug("doorman: config read failed (%s); no rows", exc)
         return []

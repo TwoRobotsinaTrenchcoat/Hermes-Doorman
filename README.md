@@ -8,7 +8,7 @@ Like a building's doorman: when a call arrives for a resident who's asleep, the
 doorman wakes them and holds the door open until the visit is over. No request
 of yours should ever die against a machine that decided to nap.
 
-**Current version: 0.2.2.** Full behavior and config examples live in the module
+**Current version: 0.2.3.** Full behavior and config examples live in the module
 docstring of `__init__.py` (authoritative); this README is the user-facing
 reference + the changelog.
 
@@ -42,15 +42,15 @@ reference + the changelog.
    varies is host-side (NIC wake support, service listening on the port), and the
    host-side recipes below cover the known Windows quirks.
 
-### Config (the `provider_wol:` block of config.yaml; hot-reloaded per hook fire)
+### Config (the `doorman:` block of config.yaml; hot-reloaded per hook fire)
 
-The block key is still `provider_wol:` — a legacy name kept deliberately so
+The block key is still `doorman:` — a legacy name kept deliberately so
 existing deployments keep working; the plugin's name changed, its config didn't.
 
 Canonical form — named targets, no dashes, one block per box:
 
 ```yaml
-provider_wol:
+doorman:
   defaults:                       # optional; overrides the module defaults below
     keepalive_interval_seconds: 90
   host-one:
@@ -131,6 +131,12 @@ Wake-cycle keys (`max_wait_seconds`, `cooldown_seconds`, `wol_port`, `probe_time
 
 ## Changelog
 
+### 2026-11-11 — v0.2.3 (config block renamed to the plugin's name)
+- **Breaking:** the config block key is now `doorman:` (was `provider_wol:`).
+  The old spelling is no longer read. Update your config block when you update
+  the plugin. Nothing else changes: same block shapes, same fields, hot reload
+  unaffected.
+
 ### 2026-11-11 — v0.2.2 (turn-cancellation fix)
 - New hook: `agent_loop_stopped`. `/stop` (and the `/new` fast path) now releases
   every live keep-alive hold — previously a cancelled turn's hold kept broadcasting
@@ -141,7 +147,7 @@ Wake-cycle keys (`max_wait_seconds`, `cooldown_seconds`, `wol_port`, `probe_time
 
 ### 2026-11-10 — v0.2.1 (rename release)
 - Renamed `provider-wol` → **doorman** (internal log prefixes and thread name
-  included). No behavior changes. The config block key stays `provider_wol:` for
+  included). No behavior changes. The config block key stays `doorman:` for
   compatibility with existing deployments.
 - README: added the tested-envelope section and this disclosure block.
 

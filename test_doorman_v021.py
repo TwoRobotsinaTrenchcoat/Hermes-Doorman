@@ -265,5 +265,41 @@ need = "MATCH" if pw.resolve_rows(rows5, "anything", "any-model",
                                   "http://gpu-host:1234/v1") else "NONE"
 check("base_url match resolves for release", need == "MATCH")
 
+# ---------------------------------------------------------------------------
+# 6. v0.2.3 config-block rename: doorman: primary, provider_wol: legacy fallback
+# ---------------------------------------------------------------------------
+
+print("== config block rename (v0.2.3 clean break) ==")
+import types as _types
+
+def _install_cfg(cfg):
+    fake = _types.ModuleType("hermes_cli.config")
+    fake.load_config = lambda: cfg
+    fake.cfg_get = lambda c, k, default=None: c.get(k, default)
+    sys.modules["hermes_cli.config"] = fake
+
+_rows_doorman = {"doorman": {"gpu-box": {"match": "base_url:*gpu-host*", "host": "10.0.20.10",
+                                          "mac": "aa:bb:cc:dd:ee:01", "port": 1234}}}
+_rows_legacy_only = {"provider_wol": {"gpu-box": {"match": "base_url:*gpu-host*", "host": "10.0.20.20",
+                                                   "mac": "aa:bb:cc:dd:ee:02", "port": 1234}}}
+
+_install_cfg(dict(_rows_doorman))
+r = pw.load_rows()
+check("doorman: block loads", len(r) == 1 and r[0]["host"] == "10.0.20.10", str(r))
+
+_install_cfg(dict(_rows_legacy_only))
+check("pre-0.2.3 provider_wol: block is IGNORED (clean rename)",
+      pw.load_rows() == [])
+
+_install_cfg({**_rows_legacy_only, "doorman": {"gpu-box": {"match": "base_url:*gpu-host*", "host": "10.0.20.10",
+                                                            "mac": "aa:bb:cc:dd:ee:01", "port": 1234}}})
+r = pw.load_rows()
+check("doorman: wins when an old block is also present",
+      len(r) == 1 and r[0]["host"] == "10.0.20.10", str(r))
+
+_install_cfg({})
+check("empty config -> no rows", pw.load_rows() == [])
+sys.modules.pop("hermes_cli.config", None)
+
 print(f"\n{PASS} passed, {FAIL} failed")
 sys.exit(1 if FAIL else 0)
